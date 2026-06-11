@@ -2,3 +2,4 @@ rag-env/
 __pycache__/
 .env
 data/
+embeddings/
