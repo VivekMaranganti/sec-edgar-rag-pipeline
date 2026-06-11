@@ -34,13 +34,14 @@ def load_filings(ticker, form_type="10-K"):
     for filing_dir in base.iterdir():
         for filepath in filing_dir.iterdir():
             if filepath.suffix in [".htm", ".txt", ".pdf"]:
-                print(f"Reading {filepath.name}...")
+                print(f"Reading {filepath.name} from {filing_dir.name}...")
                 text = extract_text(filepath)
                 if text.strip():
                     docs.append({
                         "ticker": ticker,
                         "form": form_type,
                         "filename": filepath.name,
+                        "filing_date": filing_dir.name,  # EDGAR names dirs by date
                         "text": text
                     })
     return docs
