@@ -5,10 +5,11 @@ os.environ["MKL_NUM_THREADS"] = "1"
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from retriever import load_index
-import ollama
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from hybrid_retriever import load_index, hybrid_search, chunk_docs
+from ingest import load_filings
+import ollama
 
 app = FastAPI()
 app.add_middleware(
@@ -20,6 +21,7 @@ app.add_middleware(
 executor = ThreadPoolExecutor(max_workers=2)
 print("Loading index...")
 index = load_index()
+all_chunks = chunk_docs(load_filings("NVDA"))
 print("Index loaded.")
 
 class Query(BaseModel):
@@ -33,23 +35,23 @@ async def ask(query: Query):
         loop = asyncio.get_running_loop()
         docs = await loop.run_in_executor(
             executor, 
-            lambda: index.similarity_search(query.question, k=5)
+            lambda: hybrid_search(query.question, index, all_chunks, k=5)
         )
         
         print(f"Search successful. Found {len(docs)} documents.")
         context = "\n\n".join([doc.page_content for doc in docs])
 
-        prompt = f"""You are a financial analyst assistant. Use the following excerpts from SEC 10-K filings to answer the question. Be specific and cite numbers where possible. 
+        prompt = f"""You are a financial analyst reviewing SEC 10-K filings. A colleague has asked you a question and you need to find the answer directly from the filing excerpts below. Only use what's explicitly written in the text. If you see a table, read it row by row and pull the exact number for the year being asked about. Don't estimate or do math — just find and report the figure.
 Context: {context}
 Question: {query.question}
-Answer:"""
+Answer: """
 
         print("Sending payload to Ollama...")
         response = ollama.chat(model="llama3.2", messages=[{"role": "user", "content": prompt}])
         print("Ollama responded successfully.")
 
         return {
-            "answer": response['message']['content'], 
+            "answer": response.message.content, 
             "sources": [doc.metadata for doc in docs]
         }
 
