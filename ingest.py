@@ -2,6 +2,10 @@ import os
 from sec_edgar_downloader import Downloader
 from pdfplumber import open as plumber_open
 from pathlib import Path
+from bs4 import BeautifulSoup
+
+def strip_html(text):
+    return BeautifulSoup(text, "lxml").get_text(separator=" ")
 
 dl = Downloader("Vivek Maranganti", "vivek.maranganti@gmail.com", "data")
 
@@ -20,8 +24,26 @@ def extract_text(filepath):
                     text += t + "\n"
     else:
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            text = f.read()
+            #text = f.read()
+            text = strip_html(f.read())
     return text
+import re
+
+def extract_sections(text):
+    """Split SEC filing into meaningful sections by Item headers."""
+    pattern = r'(Item\s+\d+[A-Za-z]?\.?\s+[A-Z][A-Z\s,]+)'
+    splits = re.split(pattern, text, flags=re.IGNORECASE)
+    
+    sections = []
+    for i in range(1, len(splits), 2):
+        header = splits[i].strip()
+        content = splits[i+1].strip() if i+1 < len(splits) else ""
+        if len(content) > 200:  # skip empty sections
+            sections.append({
+                "header": header,
+                "content": content
+            })
+    return sections
 
 def load_filings(ticker, form_type="10-K"):
     docs = []
@@ -36,13 +58,16 @@ def load_filings(ticker, form_type="10-K"):
             if filepath.suffix in [".htm", ".txt", ".pdf"]:
                 print(f"Reading {filepath.name} from {filing_dir.name}...")
                 text = extract_text(filepath)
-                if text.strip():
+                sections = extract_sections(text)
+                print(f"Found {len(sections)} sections")
+                for section in sections:
                     docs.append({
                         "ticker": ticker,
                         "form": form_type,
                         "filename": filepath.name,
-                        "filing_date": filing_dir.name,  # EDGAR names dirs by date
-                        "text": text
+                        "filing_date": filing_dir.name,
+                        "section": section["header"],
+                        "text": section["content"]
                     })
     return docs
 

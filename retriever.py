@@ -11,7 +11,7 @@ def chunk_docs(docs):
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", ".", " "])
     chunks = []
     for doc in docs:
-        splits = splitter.create_documents([doc["text"]], metadatas=[{"ticker": doc["ticker"], "filename": doc["filename"], "filing_date": doc["filing_date"]}])
+        splits = splitter.create_documents([doc["text"]], metadatas=[{"ticker": doc["ticker"], "filename": doc["filename"], "filing_date": doc["filing_date"], "section": doc["section"]}])
         chunks.extend(splits)
     print(f"Split into {len(chunks)} chunks")
     return chunks
