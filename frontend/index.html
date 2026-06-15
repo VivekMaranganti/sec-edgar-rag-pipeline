@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEC Filing Financial Analyst Assistant</title>
+    <!-- Tailwind CSS for clean, minimal styling -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col justify-between antialiased">
+
+    <!-- Main Content Container -->
+    <main class="max-w-3xl w-full mx-auto px-4 py-12 flex-grow">
+        
+        <!-- Header Section -->
+        <header class="mb-10 text-center md:text-left">
+            <h1 class="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                SEC Financial Analyst Assistant
+            </h1>
+            <p class="mt-2 text-lg text-gray-500">
+                Ask questions about corporate SEC 10-K filings and get data-backed answers with verifiable sources.
+            </p>
+        </header>
+
+        <!-- Input Form Section -->
+        <section class="bg-white p-6 rounded-xl shadow-xs border border-gray-200">
+            <form id="qaForm" class="space-y-4">
+                <div>
+                    <label for="question" class="block text-sm font-medium text-gray-700 mb-1">
+                        Your Question
+                    </label>
+                    <textarea 
+                        id="question" 
+                        name="question" 
+                        rows="3" 
+                        class="w-full rounded-lg border border-gray-300 p-3 text-gray-900 placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        placeholder="e.g., What was NVIDIA's revenue in 2024?"
+                        required></textarea>
+                </div>
+                
+                <button 
+                    type="submit" 
+                    id="submitBtn"
+                    class="w-full md:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2">
+                    <span>Submit Query</span>
+                </button>
+            </form>
+        </section>
+
+        <!-- Loading / Results Target -->
+        <section id="resultsSection" class="mt-8 hidden space-y-6">
+            
+            <!-- Answer Block -->
+            <div class="bg-white p-6 rounded-xl shadow-xs border border-gray-200">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">Answer</h2>
+                <div id="answerText" class="text-gray-800 leading-relaxed whitespace-pre-line text-lg">
+                    <!-- Dynamic Answer Goes Here -->
+                </div>
+            </div>
+
+            <!-- Sources Block -->
+            <div class="bg-gray-100 p-5 rounded-xl border border-gray-200">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-3">Grounding Sources</h2>
+                <div id="sourcesContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <!-- Dynamic Source Cards Go Here -->
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center py-6 border-t border-gray-200 text-xs text-gray-400">
+        SEC-RAG Pipeline Engine &bull; Minimal UI Block
+    </footer>
+
+    <!-- Frontend Logic Interfacing with your FastAPI Server -->
+    <script>
+        const form = document.getElementById('qaForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const resultsSection = document.getElementById('resultsSection');
+        const answerText = document.getElementById('answerText');
+        const sourcesContainer = document.getElementById('sourcesContainer');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const questionValue = document.getElementById('question').value.trim();
+            if (!questionValue) return;
+
+            // Update UI to loading state
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            submitBtn.innerHTML = `
+                <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Processing...</span>
+            `;
+            
+            // Clear prior outputs and keep layout clean
+            resultsSection.classList.add('hidden');
+            answerText.innerText = '';
+            sourcesContainer.innerHTML = '';
+
+            try {
+                // Pointing directly to your backend /ask route
+                const response = await fetch('http://127.0.0.1:8000/ask', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question: questionValue })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server returned HTTP status ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Populate Answer
+                answerText.innerText = data.answer || "No response text generated.";
+
+                // Populate Sources
+                if (data.sources && data.sources.length > 0) {
+                    data.sources.forEach(source => {
+                        const card = document.createElement('div');
+                        card.className = "bg-white p-3 rounded-lg border border-gray-200 shadow-2xs flex flex-col justify-between";
+                        
+                        // Handle key variants safely if names alter slightly during extraction
+                        const ticker = source.ticker || "N/A";
+                        const filename = source.filename || "10-K Excerpt";
+                        const filingDate = source.filing_date || "Unknown Date";
+
+                        card.innerHTML = `
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-blue-100 text-blue-800 font-mono">${ticker}</span>
+                                <span class="text-xs text-gray-400 font-mono">${filingDate}</span>
+                            </div>
+                            <div class="text-xs text-gray-600 truncate font-medium mt-1" title="${filename}">
+                                Doc: ${filename}
+                            </div>
+                        `;
+                        sourcesContainer.appendChild(card);
+                    });
+                } else {
+                    sourcesContainer.innerHTML = `<p class="text-sm text-gray-500 italic col-span-2">No verification meta-sources returned.</p>`;
+                }
+
+                // Show populated component
+                resultsSection.classList.remove('hidden');
+
+            } catch (error) {
+                // Graceful error state reporting in the UI
+                answerText.innerHTML = `<span class="text-red-600 font-semibold">Error processing request:</span> ${error.message}`;
+                sourcesContainer.innerHTML = `<p class="text-sm text-red-500">Failed to pull supporting metadata.</p>`;
+                resultsSection.classList.remove('hidden');
+            } finally {
+                // Restore button state
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                submitBtn.innerHTML = `<span>Submit Query</span>`;
+            }
+        });
+    </script>
+</body>
+</html>

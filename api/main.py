@@ -8,10 +8,16 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from retriever import load_index
 import ollama
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 executor = ThreadPoolExecutor(max_workers=2)
-
 print("Loading index...")
 index = load_index()
 print("Index loaded.")
