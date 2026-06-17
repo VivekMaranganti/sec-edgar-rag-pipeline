@@ -3,10 +3,13 @@ from sec_edgar_downloader import Downloader
 from pdfplumber import open as plumber_open
 from pathlib import Path
 from bs4 import BeautifulSoup
+import re
+from docling.document_converter import DocumentConverter
 
 def strip_html(text):
     return BeautifulSoup(text, "lxml").get_text(separator=" ")
 
+converter = DocumentConverter()
 dl = Downloader("Vivek Maranganti", "vivek.maranganti@gmail.com", "data")
 
 def download_filings(ticker, form_type="10-K", limit=3):
@@ -15,19 +18,15 @@ def download_filings(ticker, form_type="10-K", limit=3):
     print("Done.")
 
 def extract_text(filepath):
-    text = ""
-    if filepath.suffix == ".pdf":
-        with plumber_open(filepath) as pdf:
-            for page in pdf.pages:
-                t = page.extract_text()
-                if t:
-                    text += t + "\n"
-    else:
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            #text = f.read()
-            text = strip_html(f.read())
-    return text
-import re
+    if filepath.suffix == ".pdf" or filepath.suffix in [".htm", ".txt"]:
+        try:
+            result = converter.convert(str(filepath))
+            return result.document.export_to_markdown()
+        except Exception as e:
+            print(f"Docling failed on {filepath.name}: {e}, falling back to plain text")
+            with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                return strip_html(f.read())
+    return ""
 
 def extract_sections(text):
     """Split SEC filing into meaningful sections by Item headers."""
@@ -38,7 +37,7 @@ def extract_sections(text):
     for i in range(1, len(splits), 2):
         header = splits[i].strip()
         content = splits[i+1].strip() if i+1 < len(splits) else ""
-        if len(content) > 200:  # skip empty sections
+        if len(content) > 200:
             sections.append({
                 "header": header,
                 "content": content

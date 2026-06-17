@@ -1,28 +1,30 @@
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers.ensemble import EnsembleRetriever
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from rank_bm25 import BM25Okapi
 from ingest import load_filings
+import pickle
 from pathlib import Path
-import numpy as np
 
 EMBED_MODEL = "all-MiniLM-L6-v2"
 INDEX_PATH = "embeddings/nvda_index"
+BM25_PATH = "embeddings/bm25_retriever.pkl"
 
 def chunk_docs(docs):
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200,
-        separators=["\n\n", "\n", ".", " "]
+        chunk_size=1000, 
+        chunk_overlap=200, 
+        separators=["\n\n", "\n", " ", ""]
     )
     chunks = []
     for doc in docs:
         splits = splitter.create_documents(
-            [doc["text"]],
+            [doc["text"]], 
             metadatas=[{
-                "ticker": doc["ticker"],
-                "filename": doc["filename"],
-                "filing_date": doc["filing_date"],
+                "ticker": doc["ticker"], 
+                "filename": doc["filename"], 
+                "filing_date": doc["filing_date"], 
                 "section": doc["section"]
             }]
         )
@@ -30,43 +32,44 @@ def chunk_docs(docs):
     print(f"Split into {len(chunks)} chunks")
     return chunks
 
-def build_index(chunks):
+def build_hybrid_retriever(chunks):
+    Path("embeddings").mkdir(exist_ok=True)
+    
     print("Loading embedding model...")
     embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
     print("Building FAISS index...")
-    index = FAISS.from_documents(chunks, embeddings)
-    Path("embeddings").mkdir(exist_ok=True)
-    index.save_local(INDEX_PATH)
-    print(f"Index saved to {INDEX_PATH}")
-    return index, chunks
+    faiss_db = FAISS.from_documents(chunks, embeddings)
+    faiss_db.save_local(INDEX_PATH)
+    faiss_retriever = faiss_db.as_retriever(search_kwargs={"k": 5})
+    
+    print("Building BM25 index...")
+    bm25_retriever = BM25Retriever.from_documents(chunks)
+    bm25_retriever.k = 5
+    with open(BM25_PATH, "wb") as f:
+        pickle.dump(bm25_retriever, f)
+        
+    ensemble_retriever = EnsembleRetriever(
+        retrievers=[bm25_retriever, faiss_retriever], 
+        weights=[0.5, 0.5]
+    )
+    return ensemble_retriever
 
-def load_index():
+def load_production_retriever():
     embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
-    return FAISS.load_local(INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
-
-def hybrid_search(query, index, all_chunks, k=5):
-    # Vector search
-    vector_docs = index.similarity_search(query, k=k*2)
     
-    # BM25 keyword search
-    tokenized_chunks = [chunk.page_content.lower().split() for chunk in all_chunks]
-    bm25 = BM25Okapi(tokenized_chunks)
-    bm25_scores = bm25.get_scores(query.lower().split())
-    top_bm25_indices = np.argsort(bm25_scores)[::-1][:k*2]
-    bm25_docs = [all_chunks[i] for i in top_bm25_indices]
+    faiss_db = FAISS.load_local(INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
+    faiss_retriever = faiss_db.as_retriever(search_kwargs={"k": 5})
     
-    # Merge and deduplicate
-    seen = set()
-    merged = []
-    for doc in vector_docs + bm25_docs:
-        key = doc.page_content[:100]
-        if key not in seen:
-            seen.add(key)
-            merged.append(doc)
-    
-    return merged[:k]
+    with open(BM25_PATH, "rb") as f:
+        bm25_retriever = pickle.load(f)
+        
+    return EnsembleRetriever(
+        retrievers=[bm25_retriever, faiss_retriever], 
+        weights=[0.5, 0.5]
+    )
 
 if __name__ == "__main__":
     docs = load_filings("NVDA")
     chunks = chunk_docs(docs)
-    index, _ = build_index(chunks)
+    retriever = build_hybrid_retriever(chunks)
+    print("Hybrid production retriever compiled successfully.")

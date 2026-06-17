@@ -7,8 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from hybrid_retriever import load_index, hybrid_search, chunk_docs
-from ingest import load_filings
+from hybrid_retriever import load_production_retriever
 import ollama
 
 app = FastAPI()
@@ -20,8 +19,7 @@ app.add_middleware(
 )
 executor = ThreadPoolExecutor(max_workers=2)
 print("Loading index...")
-index = load_index()
-all_chunks = chunk_docs(load_filings("NVDA"))
+retriever = load_production_retriever()
 print("Index loaded.")
 
 class Query(BaseModel):
@@ -34,8 +32,8 @@ async def ask(query: Query):
         
         loop = asyncio.get_running_loop()
         docs = await loop.run_in_executor(
-            executor, 
-            lambda: hybrid_search(query.question, index, all_chunks, k=5)
+            executor,
+            lambda: retriever.invoke(query.question)
         )
         
         print(f"Search successful. Found {len(docs)} documents.")
@@ -47,7 +45,7 @@ Question: {query.question}
 Answer: """
 
         print("Sending payload to Ollama...")
-        response = ollama.chat(model="llama3.2", messages=[{"role": "user", "content": prompt}])
+        response = ollama.chat(model="llama3.1:8b", messages=[{"role": "user", "content": prompt}])
         print("Ollama responded successfully.")
 
         return {
